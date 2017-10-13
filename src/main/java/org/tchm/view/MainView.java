@@ -6,6 +6,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.chart.CategoryAxis;
 import javafx.scene.chart.LineChart;
+
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.XYChart;
 import javafx.scene.control.*;
@@ -29,8 +30,7 @@ import java.sql.Connection;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class MainView {
 
@@ -39,6 +39,7 @@ public class MainView {
     public String valueCode = "EUR";
     public List<Currency> cur;
     public XYChart.Series series;
+    public XYChart.Series predictedLine;
     public XYChart.Series trendLine;
     public DatePicker startDate = new DatePicker();
     public DatePicker endDate = new DatePicker();
@@ -48,6 +49,7 @@ public class MainView {
     public CheckBox cbl;
     public LineChart<String,Number> lineChart;
     public ObservableList<String> observableList;
+    public int predictedDaysNumber;
     DateFormat dateFormat= new SimpleDateFormat("yyyy-MM-dd");
     private DBTasks dbTasks= new DBTasks();
 
@@ -101,19 +103,43 @@ public class MainView {
             Initiator.initData();
             updateChart(c);
         });
-        Text category = new Text("NBP CURRENCY EXCHANGE");
-        category.setFont(Font.font("Verdana", FontWeight.BOLD, 24));
+        Text title = new Text("NBP CURRENCY EXCHANGE");
+        title.setFont(Font.font("Verdana", FontWeight.BOLD, 24));
         dbTasks = new DBTasks();
         this.cur = dbTasks.selectCurrency(c, this.dateStart.toString(),this.dateEnd.toString(),this.valueCode);
-        grid.add(category, 2, 0,4,1);
-        grid.add(startDate,2,1);
-        grid.add(endDate,3,1);
-        grid.add(addChart(),2,2,3,1);
-        grid.add(currencyList,1,1,1,3);
-        grid.add(last30days,4,1);
-        grid.add(updateToDate,3,4);
-        grid.add(refreshData,4,4);
-        grid.add(cbl,2,4);
+        TextField predictedDays = new TextField();
+        predictedDays.textProperty().addListener((observable, oldValue, newValue) -> {
+                System.out.println(oldValue+" "+newValue);
+                if (!newValue.matches("\\d*")) {
+                    predictedDays.setText(newValue.replaceAll("[^\\d]", ""));
+                } else if (!newValue.equals("")) {
+                    if (Integer.parseInt(newValue) > 30) {
+                        predictedDays.setText(newValue = (("" + 30)));
+                    }
+                    this.predictedDaysNumber = Integer.parseInt(newValue);
+
+                }
+
+
+        });
+        Label dateStartLabel = new Label("Date Start");
+        Label dateEndLabel = new Label("Date End");
+        Label currencyListLabel = new Label("Hold CTRL to select multiple currencies");
+        Label predictedDaysLabel = new Label("Number of days to predict value (max 30)");
+        grid.add(title, 2, 0,4,1);
+        grid.add(dateStartLabel,2,1);
+        grid.add(dateEndLabel,3,1);
+        grid.add(startDate,2,2);
+        grid.add(endDate,3,2);
+        grid.add(predictedDaysLabel,1,6);
+        grid.add(predictedDays, 1, 5);
+        grid.add(addChart(),2,3,3,1);
+        grid.add(currencyListLabel,1,1);
+        grid.add(currencyList,1,2,1,3);
+        grid.add(last30days,4,2);
+        grid.add(updateToDate,3,5);
+        grid.add(refreshData,4,5);
+        grid.add(cbl,2,5);
         Scene scene = new Scene(grid, 800, 600);
 
         return scene;
@@ -143,6 +169,7 @@ public class MainView {
         return  list;
     }
 
+
     public void updateChart(Connection c){
         lineChart.getData().clear();
         List<String> codeValues = new ArrayList<>();
@@ -153,29 +180,64 @@ public class MainView {
                 codeValues.add(ob);
             }
         }
+
         for(String cv : codeValues) {
             this.cur = dbTasks.selectCurrency(c, this.dateStart.toString(), this.dateEnd.toString(), cv);
             series = new XYChart.Series();
             trendLine = new XYChart.Series();
+            if (predictedDaysNumber > 0) {
+                predictedLine = new XYChart.Series();
+                predictedLine.setName(cv+" prediction");
+            }
             series.setName(cv);
-            trendLine.setName(cv+" trendLine");
+            trendLine.setName(cv + " trendLine");
             int i = 0;
+            int iteration = 0;
             if (this.cbl.isSelected()) {
                 calculateTrendLine(cur);
             }
+            Date lastDate = new Date();
             for (Currency cu : cur) {
                 series.getData().add(new XYChart.Data(dateFormat.format(cu.c_date), cu.c_value));
+                lastDate = cu.c_date;
                 if (this.cbl.isSelected()) {
                     trendLine.getData().add(new XYChart.Data(dateFormat.format(cu.c_date), slope * (i++) + offset));
                 }
             }
 
+            if(predictedDaysNumber>0) {
+                int startPoint = cur.size();
+                Calendar cal = Calendar.getInstance();
+                cal.setTime(lastDate);
+                cal.add(Calendar.DATE, -predictedDaysNumber);
+                dateFormat.format(cal.getTime());
+                calculateTrendLine(cur);
+                this.cur = dbTasks.selectCurrency(c, dateFormat.format(cal.getTime()), dateFormat.format(lastDate), cv);
+
+                cal.setTime(lastDate);
+                int j = 1;
+                Collections.reverse(cur);
+                for (Currency cu : cur) {
+                    iteration++;
+                    cal.add(Calendar.DATE, j);
+                    if (iteration == 1) {
+                        predictedLine.getData().add(new XYChart.Data(dateFormat.format(lastDate), cu.c_value));
+                    } else {
+                        predictedLine.getData().add(new XYChart.Data(dateFormat.format(cal.getTime()), ((slope * (startPoint++) + offset) + cu.c_value) / 2));
+                    }
+                }
+            }
+
+
             lineChart.getData().add(series);
             if (this.cbl.isSelected()) {
                 lineChart.getData().add(trendLine);
             }
-        }
+            if (predictedDaysNumber > 0) {
 
+                lineChart.getData().add(predictedLine);
+            }
+        }
     }
 
     public void updateChart30Days(){
