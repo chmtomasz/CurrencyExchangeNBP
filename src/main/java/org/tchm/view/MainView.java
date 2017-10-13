@@ -124,6 +124,7 @@ public class MainView {
         final CategoryAxis xAxis = new CategoryAxis();
         final NumberAxis yAxis = new NumberAxis();
         yAxis.setLabel("PLN");
+        yAxis.setForceZeroInRange(false);
         lineChart = new LineChart<>(xAxis,yAxis);
         this.series = new XYChart.Series();
         this.trendLine = new XYChart.Series();
